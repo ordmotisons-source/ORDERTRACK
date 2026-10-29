@@ -80,7 +80,7 @@ function itemBreakdown(g,staff=false){
  const entries=staff?Object.entries(raw):['booked','preparing','repairing','qc','hold','ready','delivered','cancel','unknown'].filter(k=>counts[k]).map(k=>[LABELS[k]||'Update Pending',counts[k]]);
  return '<div class="item-breakdown"><div class="item-breakdown-total">'+g.itemCount+' items · '+ready+' Ready · '+pending+' Pending'+(delivered?' · '+delivered+' Delivered':'')+(cancel?' · '+cancel+' Cancel':'')+'</div><div class="item-count-chips">'+entries.map(([label,n])=>pill(n+' '+label,'gold')).join('')+'</div></div>';
 }
-function customerBookingButton(g){return /^\d{10}$/.test(g.contact||'')?'<button class="btn secondary small customer-bookings-button" data-action="customerBookings" data-mobile="'+esc(g.contact)+'">All Customer Bookings</button>':'';}
+function customerBookingButton(g){return Number(g.itemCount)>1&&/^\d{10}$/.test(g.contact||'')?'<button class="btn secondary small customer-bookings-button" data-action="customerBookings" data-mobile="'+esc(g.contact)+'">All Customer Bookings</button>':'';}
 function openCustomerBookings(mobile){
  const phone=String(mobile||'').replace(/\D/g,'');if(!/^\d{10}$/.test(phone))return;
  const groups=S.groups.filter(g=>g.contact===phone).sort((a,b)=>(b.booked||'').localeCompare(a.booked||'')||a.reference.localeCompare(b.reference));
