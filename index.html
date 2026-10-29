@@ -80,7 +80,7 @@ function itemBreakdown(g,staff=false){
  const entries=staff?Object.entries(raw):['booked','preparing','repairing','qc','hold','ready','delivered','cancel','unknown'].filter(k=>counts[k]).map(k=>[LABELS[k]||'Update Pending',counts[k]]);
  return '<div class="item-breakdown"><div class="item-breakdown-total">'+g.itemCount+' items · '+ready+' Ready · '+pending+' Pending'+(delivered?' · '+delivered+' Delivered':'')+(cancel?' · '+cancel+' Cancel':'')+'</div><div class="item-count-chips">'+entries.map(([label,n])=>pill(n+' '+label,'gold')).join('')+'</div></div>';
 }
-function customerBookingButton(g){return /^\d{10}$/.test(g.contact||'')?'<button class="btn secondary small customer-bookings-button" data-action="customerBookings" data-mobile="'+esc(g.contact)+'">All Customer Bookings</button>':'';}
+function customerBookingButton(g){return Number(g.itemCount)>1&&/^\d{10}$/.test(g.contact||'')?'<button class="btn secondary small customer-bookings-button" data-action="customerBookings" data-mobile="'+esc(g.contact)+'">All Customer Bookings</button>':'';}
 function openCustomerBookings(mobile){
  const phone=String(mobile||'').replace(/\D/g,'');if(!/^\d{10}$/.test(phone))return;
  const groups=S.groups.filter(g=>g.contact===phone).sort((a,b)=>(b.booked||'').localeCompare(a.booked||'')||a.reference.localeCompare(b.reference));
@@ -157,7 +157,7 @@ function photoError(box,message){box.innerHTML='<div class="photo-placeholder">'
 function applyStaff(d){if(d.user.role!==PAGE){clearSession();throw new Error('Use the correct page for your account.');}S.user=d.user;S.groups=d.groups;S.today=d.today;S.fetchedAt=d.fetchedAt;S.links=GITHUB_BUILD?{customer:'./',salesperson:'salesperson.html',admin:'admin.html'}:d.links;S.error='';}
 async function loadStaff(fresh=false){applyStaff(await rpc('list',{fresh}));}
 async function refreshStaff(silent=false){if(S.pending||(silent&&S.background))return;const serial=++DATA_SERIAL;if(silent){S.background=true;headerGlow();}else busy(true,'Refreshing…');try{const d=await rpc('list',{fresh:!silent});if(serial!==DATA_SERIAL)return;applyStaff(d);render();}catch(e){if(serial!==DATA_SERIAL)return;S.error=e.message;render();if(silent)toast('Refresh failed.');}finally{if(silent){S.background=false;headerGlow();}else busy(false);}}
-async function trackCustomer(data,silent=false,fresh=false){if(S.pending||(silent&&S.background))return;const serial=++DATA_SERIAL;if(silent){S.background=true;headerGlow();}else busy(true,'Searching…');try{const result=await rpc('track',{...data,fresh});if(serial!==DATA_SERIAL)return;S.credentials=data;S.customerResult=result;S.today=result.today;S.fetchedAt=result.fetchedAt;S.error='';render();if(!silent)document.getElementById('customerResult').scrollIntoView({behavior:'smooth',block:'start'});}catch(e){if(serial!==DATA_SERIAL)return;if(silent)toast('Refresh failed.');else{S.customerResult=null;document.getElementById('customerResult').innerHTML='<div class="panel panel-pad"><div class="error" role="alert">'+esc(e.message)+'</div></div>';}}finally{if(silent){S.background=false;headerGlow();}else busy(false);}}
+async function trackCustomer(data,silent=false,fresh=false){if(S.pending||(silent&&S.background))return;const serial=++DATA_SERIAL;if(silent){S.background=true;headerGlow();}else busy(true,'Searching…');try{const result=await rpc('track',{...data,fresh,...(typeof customerAnalyticsMeta==='function'&&!silent?{analytics:customerAnalyticsMeta(fresh?'refresh':'search')}:{})});if(serial!==DATA_SERIAL)return;S.credentials=data;S.customerResult=result;S.today=result.today;S.fetchedAt=result.fetchedAt;S.error='';render();if(!silent)document.getElementById('customerResult').scrollIntoView({behavior:'smooth',block:'start'});}catch(e){if(serial!==DATA_SERIAL)return;if(silent)toast('Refresh failed.');else{S.customerResult=null;document.getElementById('customerResult').innerHTML='<div class="panel panel-pad"><div class="error" role="alert">'+esc(e.message)+'</div></div>';}}finally{if(silent){S.background=false;headerGlow();}else busy(false);}}
 function formError(id,message){const e=document.getElementById(id);if(e)e.innerHTML='<div class="error">'+esc(message)+'</div>';else toast(message);}
 document.addEventListener('submit',async e=>{const f=e.target;if(!['trackForm','loginForm'].includes(f.id))return;e.preventDefault();if(S.pending)return;const data=Object.fromEntries(new FormData(f));if(f.id==='trackForm'){await trackCustomer(data);return;}busy(true);try{const result=await rpc('login',{...data,page:PAGE});S.token=result.token;S.user=result.user;saveSession();if(result.dashboard)applyStaff(result.dashboard);else await loadStaff();render();}catch(err){formError('loginError',err.message);}finally{busy(false);}});
 document.addEventListener('input',e=>{if(e.target.id==='search'){S.search=e.target.value;S.page=1;LOCAL_SEARCH_ACTIVE=true;headerGlow();requestAnimationFrame(()=>{const list=document.getElementById('bookingList');if(list)list.innerHTML=bookingList();LOCAL_SEARCH_ACTIVE=false;headerGlow();});}});
@@ -206,6 +206,16 @@ function demoApi(action,p){
  if(action==='detail'){const group=groups.find(g=>g.id===p.id);if(!group)throw new Error('Booking not found.');return group;}
  throw new Error('This tracker is view only.');
 }
+
+function analyticsId(){return typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID().replace(/-/g,''):'v'+Date.now().toString(36)+Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2);}
+let analyticsVisitor='';
+try{analyticsVisitor=localStorage.getItem('motisons-tracker-visitor-v1')||'';if(!/^[-a-zA-Z0-9_]{12,80}$/.test(analyticsVisitor)){analyticsVisitor=analyticsId();localStorage.setItem('motisons-tracker-visitor-v1',analyticsVisitor);}}catch(ignored){analyticsVisitor=analyticsId();}
+function customerAnalyticsMeta(kind){return {visitorId:analyticsVisitor,eventId:analyticsId(),channel:GITHUB_BUILD?'GitHub Pages':'Apps Script',kind};}
+if(LIVE&&PAGE==='customer'){
+ const visit=customerAnalyticsMeta('visit');
+ rpc('visit',{analytics:visit}).then(result=>{if(!result.logged)setTimeout(()=>rpc('visit',{analytics:visit}).catch(()=>{}),2500);}).catch(()=>{});
+}
+
 document.getElementById('headerLogo').innerHTML=logoMark('header');
 document.getElementById('loadingLogo').innerHTML=logoMark('large',true);
 document.getElementById('pageBadge').textContent=PAGE==='customer'?'Customer Tracking':PAGE==='admin'?'Admin Dashboard':'Salesperson Dashboard';
